@@ -269,12 +269,20 @@ public class MotherActivity extends FragmentActivity {
             DisplayMetrics displayMetrics = new DisplayMetrics();
             getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
             float uiScale = MainUIData.instance(context).getUIScale();
-            // Take into the account screen orientation (e.g. when running on phone)
-            int widthPixels = Math.max(displayMetrics.widthPixels, displayMetrics.heightPixels);
-            float widthRatio = DEFAULT_WIDTH / widthPixels;
-            float density = DEFAULT_DENSITY / widthRatio * uiScale;
-            displayMetrics.density = density;
-            displayMetrics.scaledDensity = density;
+
+            if (Helpers.isAndroidTV(context)) {
+                // TV: force xhdpi base density for consistent UI across TV resolutions
+                int widthPixels = Math.max(displayMetrics.widthPixels, displayMetrics.heightPixels);
+                float widthRatio = DEFAULT_WIDTH / widthPixels;
+                float density = DEFAULT_DENSITY / widthRatio * uiScale;
+                displayMetrics.density = density;
+                displayMetrics.scaledDensity = density;
+            } else {
+                // Phone/tablet: use natural density, apply UI scale factor
+                displayMetrics.density = displayMetrics.density * uiScale;
+                displayMetrics.scaledDensity = displayMetrics.scaledDensity * uiScale;
+            }
+
             sCachedDisplayMetrics = displayMetrics;
         }
 
