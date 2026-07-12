@@ -1,13 +1,18 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.browse.video;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.widget.OnItemViewSelectedListener;
 import androidx.leanback.widget.Presenter;
 import androidx.leanback.widget.Row;
 import androidx.leanback.widget.RowPresenter;
 import androidx.leanback.widget.VerticalGridPresenter;
+import androidx.leanback.widget.VerticalGridView;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
@@ -75,6 +80,45 @@ public class VideoGridFragment extends GridFragment implements VideoSection {
         setOnItemViewClickedListener(new ItemViewClickedListener());
         setOnItemViewSelectedListener(new ItemViewSelectedListener());
         mCardPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        setupScrollEndDetection();
+    }
+
+    private void setupScrollEndDetection() {
+        VerticalGridView grid = getBrowseGrid();
+        if (grid == null) return;
+
+        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private boolean mScrollOccurred;
+
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING || newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                    mScrollOccurred = true;
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE && mScrollOccurred) {
+                    checkGridScrollEnd((VerticalGridView) rv);
+                }
+            }
+        });
+    }
+
+    private void checkGridScrollEnd(VerticalGridView grid) {
+        int total = mGridAdapter.size();
+        if (total == 0) return;
+
+        int lastVisible = -1;
+        for (int i = 0; i < grid.getChildCount(); i++) {
+            int pos = grid.getChildAdapterPosition(grid.getChildAt(i));
+            if (pos > lastVisible) lastVisible = pos;
+        }
+
+        if (lastVisible >= total - ViewUtil.GRID_SCROLL_CONTINUE_NUM) {
+            mMainPresenter.onScrollEnd((Video) mGridAdapter.get(total - 1));
+        }
     }
 
     private void applyPendingUpdates() {

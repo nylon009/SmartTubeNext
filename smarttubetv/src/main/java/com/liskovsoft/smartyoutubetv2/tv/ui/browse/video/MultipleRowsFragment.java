@@ -1,12 +1,16 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.browse.video;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.app.RowsSupportFragment;
 import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.ClassPresenterSelector;
 import androidx.leanback.widget.HeaderItem;
+import androidx.leanback.widget.HorizontalGridView;
 import androidx.leanback.widget.ListRow;
 import androidx.leanback.widget.ListRowPresenter;
 import androidx.leanback.widget.OnItemViewSelectedListener;
@@ -14,6 +18,7 @@ import androidx.leanback.widget.Presenter;
 import androidx.leanback.widget.Row;
 import androidx.leanback.widget.RowPresenter;
 import androidx.leanback.widget.RowPresenter.ViewHolder;
+import androidx.leanback.widget.VerticalGridView;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
@@ -22,6 +27,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.interfaces.VideoGroupPresenter;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
+import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.smartyoutubetv2.tv.adapter.VideoGroupObjectAdapter;
 import com.liskovsoft.smartyoutubetv2.tv.presenter.ChannelHeaderPresenter;
 import com.liskovsoft.smartyoutubetv2.tv.presenter.ChannelHeaderPresenter.ChannelHeaderCallback;
@@ -37,8 +43,10 @@ import com.liskovsoft.smartyoutubetv2.tv.util.ViewUtil;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public abstract class MultipleRowsFragment extends RowsSupportFragment implements VideoSection {
     private static final String TAG = MultipleRowsFragment.class.getSimpleName();
@@ -52,6 +60,7 @@ public abstract class MultipleRowsFragment extends RowsSupportFragment implement
     private ShortsCardPresenter mShortsPresenter;
     private int mSelectedRowIndex = -1;
     private ChannelHeaderCallback mChannelHeaderCallback;
+    private final Set<View> mRowsWithScrollListeners = new HashSet<>();
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -107,6 +116,79 @@ public abstract class MultipleRowsFragment extends RowsSupportFragment implement
         setOnItemViewSelectedListener(new ItemViewSelectedListener());
         mCardPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
         mShortsPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        setupRowScrollListeners();
+    }
+
+    private void setupRowScrollListeners() {
+        VerticalGridView verticalGrid = getVerticalGridView();
+        if (verticalGrid == null) return;
+
+        for (int i = 0; i < verticalGrid.getChildCount(); i++) {
+            addScrollListenerToRow(verticalGrid.getChildAt(i));
+        }
+
+        verticalGrid.addOnChildAttachStateChangeListener(new RecyclerView.OnChildAttachStateChangeListener() {
+            @Override
+            public void onChildViewAttachedToWindow(@NonNull View child) {
+                addScrollListenerToRow(child);
+            }
+
+            @Override
+            public void onChildViewDetachedFromWindow(@NonNull View child) {
+                mRowsWithScrollListeners.remove(child);
+            }
+        });
+    }
+
+    private void addScrollListenerToRow(View child) {
+        if (!mRowsWithScrollListeners.add(child)) return;
+
+        HorizontalGridView horizontalGrid = child.findViewById(R.id.row_content);
+        if (horizontalGrid == null) return;
+
+        horizontalGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private boolean mScrollOccurred;
+
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING || newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                    mScrollOccurred = true;
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE && mScrollOccurred) {
+                    checkRowScrollEnd(rv, child);
+                }
+            }
+        });
+    }
+
+    private void checkRowScrollEnd(RecyclerView rv, View rowChild) {
+        VerticalGridView verticalGrid = getVerticalGridView();
+        if (verticalGrid == null) return;
+
+        RecyclerView.ViewHolder vh = verticalGrid.getChildViewHolder(rowChild);
+        int rowPos = vh.getAdapterPosition();
+        if (rowPos < 0 || rowPos >= mRowsAdapter.size()) return;
+
+        Object rowObj = mRowsAdapter.get(rowPos);
+        if (!(rowObj instanceof ListRow)) return;
+
+        VideoGroupObjectAdapter adapter = (VideoGroupObjectAdapter) ((ListRow) rowObj).getAdapter();
+        int total = adapter.size();
+        if (total == 0) return;
+
+        int lastVisible = -1;
+        for (int i = 0; i < rv.getChildCount(); i++) {
+            int pos = rv.getChildAdapterPosition(rv.getChildAt(i));
+            if (pos > lastVisible) lastVisible = pos;
+        }
+
+        if (lastVisible >= total - ViewUtil.ROW_SCROLL_CONTINUE_NUM) {
+            mMainPresenter.onScrollEnd((Video) adapter.get(total - 1));
+        }
     }
 
     @Override
