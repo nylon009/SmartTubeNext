@@ -106,7 +106,7 @@ public class SplashPresenter extends BasePresenter<SplashView> {
     }
 
     private void runPerViewTasks() {
-        Utils.postDelayed(mCheckForUpdates, APP_INIT_DELAY_MS);
+        // Utils.postDelayed(mCheckForUpdates, APP_INIT_DELAY_MS); // Auto-update check disabled
         Utils.updateRemoteControlService(getContext());
 
         checkMasterPassword(() -> applyNewIntent(getView().getNewIntent()));
