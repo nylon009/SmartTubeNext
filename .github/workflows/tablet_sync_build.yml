@@ -1,9 +1,9 @@
-name: Weekly Sync Upstream and Build Tablet Release
+name: Sync Upstream and Build Release
 
 on:
   schedule:
     - cron: '0 0 * * 1'   # 每周一 UTC 0 点
-  workflow_dispatch:
+  workflow_dispatch:       # 也支持手动触发
 
 jobs:
   sync-and-release:
@@ -12,76 +12,89 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout master with submodules
+      - name: Checkout origin_master with submodules
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: origin_master
           fetch-depth: 0
           submodules: recursive
 
-      - name: Check for upstream updates on master
-        id: check_master
+      - name: Sync upstream master into origin_master
+        id: sync_origin
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/yuliskov/SmartTube.git
           git fetch upstream master
           if git merge-base --is-ancestor upstream/master HEAD; then
             echo "updated=false" >> $GITHUB_OUTPUT
+            echo "上游无新提交，退出流程。"
           else
             echo "updated=true" >> $GITHUB_OUTPUT
+            git reset --hard upstream/master
+            git push origin origin_master --force-with-lease
           fi
 
       - name: Exit if no upstream update
-        if: steps.check_master.outputs.updated == 'false'
-        run: |
-          echo "上游无新提交，退出流程。"
-          exit 0
+        if: steps.sync_origin.outputs.updated == 'false'
+        run: exit 0
 
-      - name: Merge upstream into master (exit on conflict)
-        if: steps.check_master.outputs.updated == 'true'
+      - name: Rebase master onto origin_master (exit on conflict)
+        if: steps.sync_origin.outputs.updated == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git merge upstream/master --no-edit; then
-            echo "::error::合并上游到 master 时冲突，已中止流程。"
-            git merge --abort
-            exit 1
-          fi
-          git push origin master
-
-      - name: Rebase br_tablet onto master (exit on conflict)
-        if: steps.check_master.outputs.updated == 'true'
-        run: |
-          git fetch origin br_tablet
-          git checkout br_tablet
-          if ! git rebase master; then
-            echo "::error::br_tablet 变基到 master 时冲突，已中止流程。请手动解决冲突。"
+          git fetch origin master
+          git checkout master
+          if ! git rebase origin_master; then
+            echo "::error::master 变基到 origin_master 时冲突，已中止流程。请手动解决冲突。"
             git rebase --abort
             exit 1
           fi
-          git push origin br_tablet --force-with-lease
+          git push origin master --force-with-lease
 
       - name: Set up JDK 11
-        if: steps.check_master.outputs.updated == 'true'
+        if: steps.sync_origin.outputs.updated == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '11'
 
-      - name: Build Release APK from br_tablet
-        if: steps.check_master.outputs.updated == 'true'
+      - name: Build Release APK from master
+        if: steps.sync_origin.outputs.updated == 'true'
         run: |
           chmod +x ./gradlew
           ./gradlew assembleStstableRelease --stacktrace
 
-      - name: Create date-based tag and Release
-        if: steps.check_master.outputs.updated == 'true'
+      - name: Rename APK with date and create Release
+        if: steps.sync_origin.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v$(date +%Y.%m.%d)-tablet"
-          git tag $TAG
-          git push origin $TAG
-          gh release create $TAG \
-            --title "Tablet Build $TAG" \
-            --notes "Auto-built from br_tablet after upstream sync on $(date +%Y-%m-%d)" \
-            $(find . -path '*/build/outputs/apk/*/*.apk' -type f)
+          DATE_DOT=$(date +%Y.%m.%d)
+          DATE_UNDERSCORE=$(date +%Y_%m_%d)
+
+          # 自动编号：查询当天已存在的 tag，序号递增
+          EXISTING=$(git ls-remote --tags origin "v${DATE_DOT}.*" | awk -F/ '{print $NF}' | sed "s|^v${DATE_DOT}\.||" | sort -n | tail -1)
+          if [ -z "$EXISTING" ]; then
+            SEQ=1
+          else
+            SEQ=$((EXISTING + 1))
+          fi
+          TAG="v${DATE_DOT}.${SEQ}"
+
+          mkdir -p release-assets
+          find . -path '*/build/outputs/apk/*/*.apk' -type f | while read -r apk; do
+            base=$(basename "$apk" .apk)
+            cp "$apk" "release-assets/${base}_${DATE_UNDERSCORE}.apk"
+          done
+
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "::error::未找到 APK 产物，请检查构建变体名和产物路径。"
+            exit 1
+          fi
+
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "Build $TAG" \
+            --notes "Auto-built from master after upstream sync on $(date +%Y-%m-%d)" \
+            release-assets/*.apk
