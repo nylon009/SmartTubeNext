@@ -1,0 +1,87 @@
+name: Weekly Sync Upstream and Build Tablet Release
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # 每周一 UTC 0 点
+  workflow_dispatch:
+
+jobs:
+  sync-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout master with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Check for upstream updates on master
+        id: check_master
+        run: |
+          git remote add upstream https://github.com/yuliskov/SmartTube.git
+          git fetch upstream master
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "updated=false" >> $GITHUB_OUTPUT
+          else
+            echo "updated=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Exit if no upstream update
+        if: steps.check_master.outputs.updated == 'false'
+        run: |
+          echo "上游无新提交，退出流程。"
+          exit 0
+
+      - name: Merge upstream into master (exit on conflict)
+        if: steps.check_master.outputs.updated == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git merge upstream/master --no-edit; then
+            echo "::error::合并上游到 master 时冲突，已中止流程。"
+            git merge --abort
+            exit 1
+          fi
+          git push origin master
+
+      - name: Rebase br_tablet onto master (exit on conflict)
+        if: steps.check_master.outputs.updated == 'true'
+        run: |
+          git fetch origin br_tablet
+          git checkout br_tablet
+          if ! git rebase master; then
+            echo "::error::br_tablet 变基到 master 时冲突，已中止流程。请手动解决冲突。"
+            git rebase --abort
+            exit 1
+          fi
+          git push origin br_tablet --force-with-lease
+
+      - name: Set up JDK 11
+        if: steps.check_master.outputs.updated == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Build Release APK from br_tablet
+        if: steps.check_master.outputs.updated == 'true'
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleStstableRelease --stacktrace
+
+      - name: Create date-based tag and Release
+        if: steps.check_master.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(date +%Y.%m.%d)-tablet"
+          git tag $TAG
+          git push origin $TAG
+          gh release create $TAG \
+            --title "Tablet Build $TAG" \
+            --notes "Auto-built from br_tablet after upstream sync on $(date +%Y-%m-%d)" \
+            $(find . -path '*/build/outputs/apk/*/*.apk' -type f)
