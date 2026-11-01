@@ -1,8 +1,8 @@
 name: Sync Upstream and Build Release
 
 on:
-  #schedule:
-  #  - cron: '0 0 * * 1'   # 每周一 UTC 0 点
+  schedule:
+    - cron: '0 0 * * 1'   # 每周一 UTC 0 点
   workflow_dispatch:       # 也支持手动触发
 
 jobs:
@@ -19,27 +19,12 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Fetch upstream and check for updates
-        id: check
-        run: |
-          git remote add upstream https://github.com/yuliskov/SmartTube.git
-          git fetch upstream master
-          if git merge-base --is-ancestor upstream/master HEAD; then
-            echo "updated=false" >> $GITHUB_OUTPUT
-            echo "上游无新提交，退出流程。"
-          else
-            echo "updated=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Exit if no upstream update
-        if: steps.check.outputs.updated == 'false'
-        run: exit 0
-
       - name: Rebase master onto upstream (exit on conflict)
-        if: steps.check.outputs.updated == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/yuliskov/SmartTube.git
+          git fetch upstream master
           if ! git rebase upstream/master; then
             echo "::error::master 变基到上游 master 时冲突，已中止流程。请手动解决冲突。"
             git rebase --abort
@@ -48,27 +33,24 @@ jobs:
           git push origin master --force-with-lease
 
       - name: Set up JDK 11
-        if: steps.check.outputs.updated == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '11'
 
       - name: Build Release APK
-        if: steps.check.outputs.updated == 'true'
         run: |
           chmod +x ./gradlew
           ./gradlew assembleStstableRelease --stacktrace
 
       - name: Rename APK with date and create Release
-        if: steps.check.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE_DOT=$(date +%Y.%m.%d)
           DATE_UNDERSCORE=$(date +%Y_%m_%d)
 
-          # 自动编号：查询当天已存在的 tag，序号递增
+          # 自动编号：查询本仓当天已存在的 tag，序号递增
           EXISTING=$(git ls-remote --tags origin "v${DATE_DOT}.*" | awk -F/ '{print $NF}' | sed "s|^v${DATE_DOT}\.||" | sort -n | tail -1)
           if [ -z "$EXISTING" ]; then
             SEQ=1
