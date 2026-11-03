@@ -124,13 +124,13 @@ android {
 
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
-            if (keystorePropertiesFile.exists()) {
+            if (getSigningValue('RELEASE_STORE_FILE', 'storeFile') != null) {
                 signingConfig signingConfigs.release
             }
         }
         // Use same key for release and debug for testing
         debug {
-            if (keystorePropertiesFile.exists()) {
+            if (getSigningValue('RELEASE_STORE_FILE', 'storeFile') != null) {
                 signingConfig signingConfigs.release
             }
         }
