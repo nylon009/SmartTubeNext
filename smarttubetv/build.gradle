@@ -30,6 +30,18 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// read from proj property first, if not find, then from keystore.properties file
+def getSigningValue = { String propName, String fileKey ->
+    if (project.hasProperty(propName)) {
+        return project.property(propName)
+    }
+    if (keystorePropertiesFile.exists() && keystoreProperties[fileKey] != null) {
+        return keystoreProperties[fileKey]
+    }
+    return null
+}
+
+
 // The first letter of the flavor name must be in uppercase
 if (new File("${projectDir}/google-services.json").exists() && (getGradle().getStartParameter().getTaskRequests().toString().contains("Stbeta") ||
         getGradle().getStartParameter().getTaskRequests().toString().contains("Ststable"))) {
@@ -90,11 +102,16 @@ android {
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
-                storeFile = file(keystoreProperties['storeFile'])
-                storePassword = keystoreProperties['storePassword']
-                keyAlias = keystoreProperties['keyAlias']
-                keyPassword = keystoreProperties['keyPassword']
+            def storeFilePath = getSigningValue('RELEASE_STORE_FILE', 'storeFile')
+            def storePwd      = getSigningValue('RELEASE_STORE_PASSWORD', 'storePassword')
+            def aliasName     = getSigningValue('RELEASE_KEY_ALIAS', 'keyAlias')
+            def keyPwd        = getSigningValue('RELEASE_KEY_PASSWORD', 'keyPassword')
+
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = storePwd
+                keyAlias = aliasName
+                keyPassword = keyPwd
             }
         }
     }
