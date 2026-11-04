@@ -26,14 +26,14 @@ jobs:
           git fetch upstream master
           if git merge-base --is-ancestor upstream/master HEAD; then
             echo "updated=false" >> $GITHUB_OUTPUT
-            echo "上游无新提交，退出流程。"
+            echo "上游无新提交"
           else
             echo "updated=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Exit if no upstream update
-        if: steps.check.outputs.updated == 'false'
-        run: exit 0
+      #- name: Exit if no upstream update
+      #  if: steps.check.outputs.updated == 'false'
+      #  run: exit 0
 
       - name: Rebase master onto upstream (exit on conflict)
         if: steps.check.outputs.updated == 'true'
