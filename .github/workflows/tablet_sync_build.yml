@@ -100,17 +100,17 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleStstableRelease --stacktrace
 
-      - name: Rename APK with date and create Release
+      - name: Create Release
         if: steps.check.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DATE_UNDERSCORE="${{ env.DATE_UNDERSCORE }}"
           TAG="${{ env.TAG }}"
 
           mkdir -p release-assets
           find . -path '*/build/outputs/apk/*/*.apk' -type f | while read -r apk; do
-            cp "$apk" "release-assets/$apk"
+            base=$(basename "$apk" .apk)
+            cp "$apk" "release-assets/${base}.apk"
           done
 
           if [ -z "$(ls -A release-assets)" ]; then
