@@ -36,7 +36,6 @@ jobs:
       #  run: exit 0
 
       - name: Rebase master onto upstream (exit on conflict)
-        if: steps.check.outputs.updated == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -48,14 +47,12 @@ jobs:
           git push origin master --force-with-lease
 
       - name: Set up JDK 17
-        if: steps.check.outputs.updated == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Set build version
-        if: steps.check.outputs.updated == 'true'
         run: |
           DATE_DOT=$(date +%Y.%m.%d)
           DATE_UNDERSCORE=$(date +%Y_%m_%d)
@@ -86,7 +83,6 @@ jobs:
           echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
 
       - name: Configure Build Signing
-        if: steps.check.outputs.updated == 'true'
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/release.jks
           echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > keystore.properties
@@ -95,13 +91,11 @@ jobs:
           echo "storeFile=$RUNNER_TEMP/release.jks" >> keystore.properties
 
       - name: Build Release APK
-        if: steps.check.outputs.updated == 'true'
         run: |
           chmod +x ./gradlew
           ./gradlew assembleStstableRelease --stacktrace
 
       - name: Create Release
-        if: steps.check.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
