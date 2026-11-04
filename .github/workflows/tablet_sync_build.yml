@@ -47,12 +47,52 @@ jobs:
           fi
           git push origin master --force-with-lease
 
-      - name: Set up JDK 11
+      - name: Set up JDK 17
         if: steps.check.outputs.updated == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
+
+      - name: Set build version
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          DATE_DOT=$(date +%Y.%m.%d)
+          DATE_UNDERSCORE=$(date +%Y_%m_%d)
+          YY=$(date +%y)
+          MM=$(date +%m)
+          DD=$(date +%d)
+
+          # 自动编号：查询当天已存在的 tag，序号递增
+          EXISTING=$(git ls-remote --tags origin "v${DATE_DOT}.*" | awk -F/ '{print $NF}' | sed "s|^v${DATE_DOT}\.||" | sort -n | tail -1)
+          if [ -z "$EXISTING" ]; then
+            SEQ=1
+          else
+            SEQ=$((EXISTING + 1))
+          fi
+          SEQ2=$(printf "%02d" "$SEQ")
+
+          # versionCode: yymmdd{seq}（8 位数字，seq 为两位补零）
+          VERSION_CODE="${YY}${MM}${DD}${SEQ2}"
+          # versionName: yy.mm.dd{seq}
+          VERSION_NAME="${YY}.${MM}.${DD}${SEQ2}"
+          TAG="v${DATE_DOT}.${SEQ}"
+
+          sed -i "s/versionCode [0-9]*/versionCode ${VERSION_CODE}/" smarttubetv/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION_NAME}\"/" smarttubetv/build.gradle
+
+          echo "DATE_UNDERSCORE=${DATE_UNDERSCORE}" >> $GITHUB_ENV
+          echo "TAG=${TAG}" >> $GITHUB_ENV
+          echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+
+      - name: Configure Build Signing
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/release.jks
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storeFile=$RUNNER_TEMP/release.jks" >> keystore.properties
 
       - name: Build Release APK
         if: steps.check.outputs.updated == 'true'
@@ -65,22 +105,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DATE_DOT=$(date +%Y.%m.%d)
-          DATE_UNDERSCORE=$(date +%Y_%m_%d)
-
-          # 自动编号：查询当天已存在的 tag，序号递增
-          EXISTING=$(git ls-remote --tags origin "v${DATE_DOT}.*" | awk -F/ '{print $NF}' | sed "s|^v${DATE_DOT}\.||" | sort -n | tail -1)
-          if [ -z "$EXISTING" ]; then
-            SEQ=1
-          else
-            SEQ=$((EXISTING + 1))
-          fi
-          TAG="v${DATE_DOT}.${SEQ}"
+          DATE_UNDERSCORE="${{ env.DATE_UNDERSCORE }}"
+          TAG="${{ env.TAG }}"
 
           mkdir -p release-assets
           find . -path '*/build/outputs/apk/*/*.apk' -type f | while read -r apk; do
-            base=$(basename "$apk" .apk)
-            cp "$apk" "release-assets/${base}_${DATE_UNDERSCORE}.apk"
+            cp "$apk" "release-assets/$apk"
           done
 
           if [ -z "$(ls -A release-assets)" ]; then
